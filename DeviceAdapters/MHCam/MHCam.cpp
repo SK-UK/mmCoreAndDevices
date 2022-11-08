@@ -40,14 +40,13 @@ double g_IntensityFactor_ = 1.0;
 
 // External names used used by the rest of the system
 // to load particular device from the "DemoCamera.dll" library
-const char* g_CameraDeviceName = "DCam";
-const char* g_HubDeviceName = "DHub";
+const char* g_CameraDeviceName = "MH Cam";
+const char* g_HubDeviceName = "MH Hub";
 
 // constants for naming pixel types (allowed values of the "PixelType" property)
 const char* g_PixelType_8bit = "8bit";
 const char* g_PixelType_16bit = "16bit";
 const char* g_PixelType_32bitRGB = "32bitRGB";
-const char* g_PixelType_64bitRGB = "64bitRGB";
 const char* g_PixelType_32bit = "32bit";  // floating point greyscale
 
 // constants for naming camera modes
@@ -265,7 +264,6 @@ int CDemoCamera::Initialize()
     pixelTypeValues.push_back(g_PixelType_8bit);
     pixelTypeValues.push_back(g_PixelType_16bit);
     pixelTypeValues.push_back(g_PixelType_32bitRGB);
-    pixelTypeValues.push_back(g_PixelType_64bitRGB);
     pixelTypeValues.push_back(::g_PixelType_32bit);
 
     nRet = SetAllowedValues(MM::g_Keyword_PixelType, pixelTypeValues);
@@ -1297,13 +1295,6 @@ int CDemoCamera::OnPixelType(MM::PropertyBase* pProp, MM::ActionType eAct)
             bitDepth_ = 8;
             ret = DEVICE_OK;
         }
-        else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-        {
-            nComponents_ = 4;
-            img_.Resize(img_.Width(), img_.Height(), 8);
-            bitDepth_ = 16;
-            ret = DEVICE_OK;
-        }
         else if (pixelType.compare(g_PixelType_32bit) == 0)
         {
             nComponents_ = 1;
@@ -1343,10 +1334,6 @@ int CDemoCamera::OnPixelType(MM::PropertyBase* pProp, MM::ActionType eAct)
             {
                 pProp->Set(::g_PixelType_32bit);
             }
-        }
-        else if (bytesPerPixel == 8)
-        {
-            pProp->Set(g_PixelType_64bitRGB);
         }
         else
         {
@@ -1454,10 +1441,6 @@ int CDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
         else if (pixelType.compare(g_PixelType_32bit) == 0)
         {
             bytesPerPixel = 4;
-        }
-        else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-        {
-            bytesPerPixel = 8;
         }
         img_.Resize(img_.Width(), img_.Height(), bytesPerPixel);
 
@@ -1909,10 +1892,6 @@ int CDemoCamera::ResizeImageBuffer()
     {
         byteDepth = 4;
     }
-    else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-    {
-        byteDepth = 8;
-    }
 
     img_.Resize(cameraCCDXSize_ / binSize_, cameraCCDYSize_ / binSize_, byteDepth);
     return DEVICE_OK;
@@ -2195,32 +2174,6 @@ void CDemoCamera::GenerateSyntheticImage(ImgBuffer& img, double exp)
             writeCompactTiffRGB(imgWidth, img.Height(), pTmpBuffer, ("democamera" + std::string(ctmp)).c_str());
         }
 
-    }
-
-    // generate an RGB image with bitDepth_ bits in each color
-    else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-    {
-        double pedestal = maxValue / 2 * exp / 100.0 * GetBinning() * GetBinning();
-        double dAmp16 = dAmp * maxValue / 255.0; // scale to behave like 8-bit
-
-        double maxPixelValue = (1 << (bitDepth_)) - 1;
-        unsigned long long* pBuf = (unsigned long long*) rawBuf;
-        for (j = 0; j < img.Height(); j++)
-        {
-            for (k = 0; k < imgWidth; k++)
-            {
-                long lIndex = imgWidth * j + k;
-                unsigned long long value0 = (unsigned short)min(maxPixelValue, (pedestal + dAmp16 * sin(dPhase_ + dLinePhase + (2.0 * lSinePeriod * k) / lPeriod)));
-                unsigned long long value1 = (unsigned short)min(maxPixelValue, (pedestal + dAmp16 * sin(dPhase_ + dLinePhase * 2 + (2.0 * lSinePeriod * k) / lPeriod)));
-                unsigned long long value2 = (unsigned short)min(maxPixelValue, (pedestal + dAmp16 * sin(dPhase_ + dLinePhase * 4 + (2.0 * lSinePeriod * k) / lPeriod)));
-                unsigned long long tval = value0 + (value1 << 16) + (value2 << 32);
-                if (tval > maxDrawnVal) {
-                    maxDrawnVal = static_cast<double>(tval);
-                }
-                *(pBuf + lIndex) = tval;
-            }
-            dLinePhase += cLinePhaseInc;
-        }
     }
 
     if (shouldDisplayImageNumber_) {
