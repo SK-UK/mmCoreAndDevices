@@ -52,24 +52,6 @@
 
 const char* NoHubError = "Parent Hub not defined.";
 
-// Defines which segments in a seven-segment display are lit up for each of
-// the numbers 0-9. Segments are:
-//
-//  0       1
-// 1 2     2 4
-//  3       8
-// 4 5    16 32
-//  6      64
-const int SEVEN_SEGMENT_RULES[] = { 1 + 2 + 4 + 16 + 32 + 64, 4 + 32, 1 + 4 + 8 + 16 + 64,
-      1 + 4 + 8 + 32 + 64, 2 + 4 + 8 + 32, 1 + 2 + 8 + 32 + 64, 2 + 8 + 16 + 32 + 64, 1 + 4 + 32,
-      1 + 2 + 4 + 8 + 16 + 32 + 64, 1 + 2 + 4 + 8 + 32 + 64 };
-// Indicates if the segment is horizontal or vertical.
-const int SEVEN_SEGMENT_HORIZONTALITY[] = { 1, 0, 0, 1, 0, 0, 1 };
-// X offset for this segment.
-const int SEVEN_SEGMENT_X_OFFSET[] = { 0, 0, 1, 0, 0, 1, 0 };
-// Y offset for this segment.
-const int SEVEN_SEGMENT_Y_OFFSET[] = { 0, 0, 0, 1, 1, 1, 2 };
-
 class ImgManipulator
 {
 public:
@@ -202,13 +184,10 @@ public:
     int OnPhotonFlux(MM::PropertyBase* pProp, MM::ActionType eAct);
     int OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct);
     int OnCrash(MM::PropertyBase* pProp, MM::ActionType eAct);
+    int OnLifetime(MM::PropertyBase* pProp, MM::ActionType eAct);
+    int OnDecOrRat(MM::PropertyBase* pProp, MM::ActionType eAct);
 
     // Special public DemoCamera methods
-    void AddBackgroundAndNoise(ImgBuffer& img, double mean, double stdDev);
-    void AddSignal(ImgBuffer& img, double photonFlux, double exp, double cf);
-    // this function replace normal_distribution in C++11
-    double GaussDistributedValue(double mean, double std);
-
     int RegisterImgManipulatorCallBack(ImgManipulator* imgManpl);
     long GetCCDXSize() { return cameraCCDXSize_; }
     long GetCCDYSize() { return cameraCCDYSize_; }
@@ -219,9 +198,12 @@ private:
     void TestResourceLocking(const bool);
     void GenerateEmptyImage(ImgBuffer& img);
     void GenerateSyntheticImage(ImgBuffer& img, double exp);
-    bool GenerateColorTestPattern(ImgBuffer& img);
     bool GenerateMHTestPattern(ImgBuffer& img);
+    bool GenerateMHHisto(ImgBuffer& img);
     int ResizeImageBuffer();
+    void GenerateDecay(ImgBuffer& img);
+    void TranslateRecord(unsigned int val);
+    unsigned int ParseTTTR(unsigned int val);
 
     static const double nominalPixelSizeUm_;
 
@@ -266,6 +248,8 @@ private:
     std::vector<unsigned> multiROIYs_;
     std::vector<unsigned> multiROIWidths_;
     std::vector<unsigned> multiROIHeights_;
+    std::vector<int> bins_;
+    std::vector<int> counts_;
 
     double testProperty_[10];
     MMThreadLock imgPixelsLock_;
@@ -277,6 +261,12 @@ private:
     double pcf_;
     double photonFlux_;
     double readNoise_;
+    long Sim_lifetime_;
+    long Lifetime_range_;
+    bool rates_or_decays_;
+    unsigned int special_mask_;
+    unsigned int channel_mask_;
+    unsigned int time_mask_;
 };
 
 class MySequenceThread : public MMDeviceThreadBase

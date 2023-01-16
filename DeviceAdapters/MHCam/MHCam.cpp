@@ -46,17 +46,19 @@ const char* g_HubDeviceName = "DHub";
 // constants for naming pixel types (allowed values of the "PixelType" property)
 const char* g_PixelType_8bit = "8bit";
 const char* g_PixelType_16bit = "16bit";
-const char* g_PixelType_32bitRGB = "32bitRGB";
-const char* g_PixelType_64bitRGB = "64bitRGB";
-const char* g_PixelType_32bit = "32bit";  // floating point greyscale
+//const char* g_PixelType_32bitRGB = "32bitRGB";
+//const char* g_PixelType_64bitRGB = "64bitRGB";
+//const char* g_PixelType_32bit = "32bit";  // floating point greyscale
 
 // constants for naming camera modes
-const char* g_Sine_Wave = "Artificial Waves";
-const char* g_Norm_Noise = "Noise";
-const char* g_Color_Test = "Color Test Pattern";
+//const char* g_Sine_Wave = "Artificial Waves";
+//const char* g_Norm_Noise = "Noise";
+//const char* g_Color_Test = "Color Test Pattern";
 const char* g_MH_Test = "MH Test Pattern";
+const char* g_MH_Histo = "MH Histogram";
 
-enum { MODE_ARTIFICIAL_WAVES, MODE_NOISE, MODE_COLOR_TEST, MODE_MH_TEST };
+//enum { MODE_ARTIFICIAL_WAVES, MODE_NOISE, MODE_COLOR_TEST, MODE_MH_TEST };
+enum { MODE_MH_TEST, MODE_MH_HISTO};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Exported MMDevice API
@@ -158,11 +160,17 @@ CDemoCamera::CDemoCamera() :
     supportsMultiROI_(false),
     multiROIFillValue_(0),
     nComponents_(1),
-    mode_(MODE_ARTIFICIAL_WAVES),
+    mode_(MODE_MH_TEST),
     imgManpl_(0),
     pcf_(1.0),
     photonFlux_(50.0),
-    readNoise_(2.5)
+    readNoise_(2.5),
+    Sim_lifetime_(2000),
+    Lifetime_range_(12500),
+    rates_or_decays_(false),
+    special_mask_(0x80000000),
+    channel_mask_(0x7C000000),
+    time_mask_(0x3FFFFFF)
 {
     memset(testProperty_, 0, sizeof(testProperty_));
 
@@ -264,9 +272,6 @@ int CDemoCamera::Initialize()
     vector<string> pixelTypeValues;
     pixelTypeValues.push_back(g_PixelType_8bit);
     pixelTypeValues.push_back(g_PixelType_16bit);
-    pixelTypeValues.push_back(g_PixelType_32bitRGB);
-    pixelTypeValues.push_back(g_PixelType_64bitRGB);
-    pixelTypeValues.push_back(::g_PixelType_32bit);
 
     nRet = SetAllowedValues(MM::g_Keyword_PixelType, pixelTypeValues);
     if (nRet != DEVICE_OK)
@@ -279,11 +284,7 @@ int CDemoCamera::Initialize()
 
     vector<string> bitDepths;
     bitDepths.push_back("8");
-    bitDepths.push_back("10");
-    bitDepths.push_back("12");
-    bitDepths.push_back("14");
     bitDepths.push_back("16");
-    bitDepths.push_back("32");
     nRet = SetAllowedValues("BitDepth", bitDepths);
     if (nRet != DEVICE_OK)
         return nRet;
@@ -412,11 +413,9 @@ int CDemoCamera::Initialize()
     // Camera mode: 
     pAct = new CPropertyAction(this, &CDemoCamera::OnMode);
     propName = "Mode";
-    CreateStringProperty(propName.c_str(), g_Sine_Wave, false, pAct);
-    AddAllowedValue(propName.c_str(), g_Sine_Wave);
-    AddAllowedValue(propName.c_str(), g_Norm_Noise);
-    AddAllowedValue(propName.c_str(), g_Color_Test);
+    CreateStringProperty(propName.c_str(), g_MH_Test, false, pAct);
     AddAllowedValue(propName.c_str(), g_MH_Test);
+    AddAllowedValue(propName.c_str(), g_MH_Histo);
 
     // Photon Conversion Factor for Noise type camera
     pAct = new CPropertyAction(this, &CDemoCamera::OnPCF);
@@ -442,6 +441,18 @@ int CDemoCamera::Initialize()
     AddAllowedValue("SimulateCrash", "");
     AddAllowedValue("SimulateCrash", "Dereference Null Pointer");
     AddAllowedValue("SimulateCrash", "Divide by Zero");
+
+    //###################### ADDED ###################
+    pAct = new CPropertyAction(this, &CDemoCamera::OnLifetime);
+    propName = "Simulated lifetime [ps]";
+    nRet = CreateIntegerProperty(propName.c_str(), 0, false, pAct);
+    SetPropertyLimits(propName.c_str(), 10, 3000);
+
+    pAct = new CPropertyAction(this, &CDemoCamera::OnDecOrRat);
+    propName = "Decay or rates";
+    CreateStringProperty("Decay or rates", "", false, pAct);
+    AddAllowedValue(propName.c_str(), "Decay");
+    AddAllowedValue(propName.c_str(), "Rates");
 
     // synchronize all properties
     // --------------------------
@@ -1290,27 +1301,13 @@ int CDemoCamera::OnPixelType(MM::PropertyBase* pProp, MM::ActionType eAct)
             bitDepth_ = 16;
             ret = DEVICE_OK;
         }
-        else if (pixelType.compare(g_PixelType_32bitRGB) == 0)
-        {
-            nComponents_ = 4;
-            img_.Resize(img_.Width(), img_.Height(), 4);
-            bitDepth_ = 8;
-            ret = DEVICE_OK;
-        }
-        else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-        {
-            nComponents_ = 4;
-            img_.Resize(img_.Width(), img_.Height(), 8);
-            bitDepth_ = 16;
-            ret = DEVICE_OK;
-        }
-        else if (pixelType.compare(g_PixelType_32bit) == 0)
-        {
-            nComponents_ = 1;
-            img_.Resize(img_.Width(), img_.Height(), 4);
-            bitDepth_ = 32;
-            ret = DEVICE_OK;
-        }
+        //else if (pixelType.compare(g_PixelType_32bit) == 0)
+        //{
+        //    nComponents_ = 1;
+        //    img_.Resize(img_.Width(), img_.Height(), 4);
+        //    bitDepth_ = 32;
+        //    ret = DEVICE_OK;
+        //}
         else
         {
             // on error switch to default pixel type
@@ -1333,21 +1330,13 @@ int CDemoCamera::OnPixelType(MM::PropertyBase* pProp, MM::ActionType eAct)
         {
             pProp->Set(g_PixelType_16bit);
         }
-        else if (bytesPerPixel == 4)
-        {
-            if (nComponents_ == 4)
-            {
-                pProp->Set(g_PixelType_32bitRGB);
-            }
-            else if (nComponents_ == 1)
-            {
-                pProp->Set(::g_PixelType_32bit);
-            }
-        }
-        else if (bytesPerPixel == 8)
-        {
-            pProp->Set(g_PixelType_64bitRGB);
-        }
+        //else if (bytesPerPixel == 4)
+        //{
+        //    if (nComponents_ == 1)
+        //    {
+        //        pProp->Set(::g_PixelType_32bit);
+        //    }
+        //} 
         else
         {
             pProp->Set(g_PixelType_8bit);
@@ -1432,12 +1421,6 @@ int CDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
                 SetProperty(MM::g_Keyword_PixelType, g_PixelType_16bit);
                 bytesPerPixel = 2;
             }
-            else if (4 == bytesPerComponent)
-            {
-                SetProperty(MM::g_Keyword_PixelType, g_PixelType_32bit);
-                bytesPerPixel = 4;
-
-            }
             else
             {
                 bytesPerPixel = 1;
@@ -1446,18 +1429,6 @@ int CDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
         else if (pixelType.compare(g_PixelType_16bit) == 0)
         {
             bytesPerPixel = 2;
-        }
-        else if (pixelType.compare(g_PixelType_32bitRGB) == 0)
-        {
-            bytesPerPixel = 4;
-        }
-        else if (pixelType.compare(g_PixelType_32bit) == 0)
-        {
-            bytesPerPixel = 4;
-        }
-        else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-        {
-            bytesPerPixel = 8;
         }
         img_.Resize(img_.Width(), img_.Height(), bytesPerPixel);
 
@@ -1762,20 +1733,14 @@ int CDemoCamera::OnMode(MM::PropertyBase* pProp, MM::ActionType eAct)
     {
         switch (mode_)
         {
-        case MODE_ARTIFICIAL_WAVES:
-            val = g_Sine_Wave;
-            break;
-        case MODE_NOISE:
-            val = g_Norm_Noise;
-            break;
-        case MODE_COLOR_TEST:
-            val = g_Color_Test;
-            break;
         case MODE_MH_TEST:
             val = g_MH_Test;
             break;
+        case MODE_MH_HISTO:
+            val = g_MH_Histo;
+            break;
         default:
-            val = g_Sine_Wave;
+            val = g_MH_Test;
             break;
         }
         pProp->Set(val.c_str());
@@ -1783,21 +1748,17 @@ int CDemoCamera::OnMode(MM::PropertyBase* pProp, MM::ActionType eAct)
     else if (eAct == MM::AfterSet)
     {
         pProp->Get(val);
-        if (val == g_Norm_Noise)
-        {
-            mode_ = MODE_NOISE;
-        }
-        else if (val == g_Color_Test)
-        {
-            mode_ = MODE_COLOR_TEST;
-        }
-        else if (val == g_MH_Test)
+        if (val == g_MH_Test)
         {
             mode_ = MODE_MH_TEST;
         }
+        else if (val == g_MH_Histo)
+        {
+            mode_ = MODE_MH_HISTO;
+        }
         else
         {
-            mode_ = MODE_ARTIFICIAL_WAVES;
+            mode_ = MODE_MH_TEST;
         }
     }
     return DEVICE_OK;
@@ -1871,6 +1832,49 @@ int CDemoCamera::OnCrash(MM::PropertyBase* pProp, MM::ActionType eAct)
     return DEVICE_OK;
 }
 
+int CDemoCamera::OnLifetime(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+    if (eAct == MM::BeforeGet)
+    {
+        pProp->Set(Sim_lifetime_);
+    }
+    else if (eAct == MM::AfterSet)
+    {
+        long value;
+        pProp->Get(value);
+        Sim_lifetime_ = value;
+    }
+    return DEVICE_OK;
+
+}
+
+int CDemoCamera::OnDecOrRat(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+    if (eAct == MM::BeforeGet)
+    {
+        std::string current_val;
+        if (rates_or_decays_) {
+            current_val = "Rates";
+        }
+        else {
+            current_val = "Decays";
+        }
+        pProp->Set(current_val.c_str());
+    }
+    else if (eAct == MM::AfterSet)
+    {
+        std::string choice;
+        pProp->Get(choice);
+        if (choice == "Decay") {
+            rates_or_decays_ = false;
+        }
+        else {
+            rates_or_decays_ = true;
+        }
+    }
+    return DEVICE_OK;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Private CDemoCamera methods
 ///////////////////////////////////////////////////////////////////////////////
@@ -1901,21 +1905,36 @@ int CDemoCamera::ResizeImageBuffer()
     {
         byteDepth = 2;
     }
-    else if (pixelType.compare(g_PixelType_32bitRGB) == 0)
-    {
-        byteDepth = 4;
-    }
-    else if (pixelType.compare(g_PixelType_32bit) == 0)
-    {
-        byteDepth = 4;
-    }
-    else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-    {
-        byteDepth = 8;
-    }
 
     img_.Resize(cameraCCDXSize_ / binSize_, cameraCCDYSize_ / binSize_, byteDepth);
     return DEVICE_OK;
+}
+
+void CDemoCamera::GenerateDecay(ImgBuffer& img)
+{
+
+}
+
+
+void CDemoCamera::TranslateRecord(unsigned int val) {
+    //Try to extract relevant information with a minimum amount of duplication
+    //Bit-mask a copy, then shift as appropriate for each element?
+    //Reminder: For MultiHarp
+    //val will be one record from the unsigned int buffer[TTREADMAX]
+    bool special = (special_mask_ & val) == special_mask_;
+    unsigned int channel = (channel_mask_ & val);
+    unsigned int timestamp = (time_mask_ & val);
+    if (special) {
+        //Handle special channel numbers here
+    }
+    else {
+        //Translate timestamp - maybe manipulate image via the pointer directly here?
+    }
+}
+
+unsigned int CDemoCamera::ParseTTTR(unsigned int val)
+{
+    return 0;
 }
 
 void CDemoCamera::GenerateEmptyImage(ImgBuffer& img)
@@ -1941,31 +1960,14 @@ void CDemoCamera::GenerateSyntheticImage(ImgBuffer& img, double exp)
 
     MMThreadGuard g(imgPixelsLock_);
 
-    if (mode_ == MODE_NOISE)
-    {
-        double max = 1 << GetBitDepth();
-        int offset = 10;
-        if (max > 256)
-        {
-            offset = 100;
-        }
-        double readNoiseDN = readNoise_ / pcf_;
-        AddBackgroundAndNoise(img, offset, readNoiseDN);
-        AddSignal(img, photonFlux_, exp, pcf_);
-        if (imgManpl_ != 0)
-        {
-            imgManpl_->ChangePixels(img);
-        }
-        return;
-    }
-    else if (mode_ == MODE_COLOR_TEST)
-    {
-        if (GenerateColorTestPattern(img))
-            return;
-    }
-    else if (mode_ == MODE_MH_TEST)
+    if (mode_ == MODE_MH_TEST)
     {
         if (GenerateMHTestPattern(img))
+            return;
+    }
+    else if (mode_ == MODE_MH_HISTO)
+    {
+        if (GenerateMHHisto(img))
             return;
     }
 
@@ -1976,467 +1978,170 @@ void CDemoCamera::GenerateSyntheticImage(ImgBuffer& img, double exp)
 
     if (img.Height() == 0 || img.Width() == 0 || img.Depth() == 0)
         return;
-
-    double lSinePeriod = 3.14159265358979 * stripeWidth_;
-    unsigned imgWidth = img.Width();
-    unsigned int* rawBuf = (unsigned int*)img.GetPixelsRW();
-    double maxDrawnVal = 0;
-    long lPeriod = (long)imgWidth / 2;
-    double dLinePhase = 0.0;
-    const double dAmp = exp;
-    double cLinePhaseInc = 2.0 * lSinePeriod / 4.0 / img.Height();
-    if (shouldRotateImages_) {
-        // Adjust the angle of the sin wave pattern based on how many images
-        // we've taken, to increase the period (i.e. time between repeat images).
-        cLinePhaseInc *= (((int)dPhase_ / 6) % 24) - 12;
-    }
-
-    static bool debugRGB = false;
-#ifdef TIFFDEMO
-    debugRGB = true;
-#endif
-    static  unsigned char* pDebug = NULL;
-    static unsigned long dbgBufferSize = 0;
-    static long iseq = 1;
-
-
-
-    // for integer images: bitDepth_ is 8, 10, 12, 16 i.e. it is depth per component
-    long maxValue = (1L << bitDepth_) - 1;
-
-    long pixelsToDrop = 0;
-    if (dropPixels_)
-        pixelsToDrop = (long)(0.5 + fractionOfPixelsToDropOrSaturate_ * img.Height() * imgWidth);
-    long pixelsToSaturate = 0;
-    if (saturatePixels_)
-        pixelsToSaturate = (long)(0.5 + fractionOfPixelsToDropOrSaturate_ * img.Height() * imgWidth);
-
-    unsigned j, k;
-    if (pixelType.compare(g_PixelType_8bit) == 0)
-    {
-        double pedestal = 127 * exp / 100.0 * GetBinning() * GetBinning();
-        unsigned char* pBuf = const_cast<unsigned char*>(img.GetPixels());
-        for (j = 0; j < img.Height(); j++)
-        {
-            for (k = 0; k < imgWidth; k++)
-            {
-                long lIndex = imgWidth * j + k;
-                unsigned char val = (unsigned char)(g_IntensityFactor_ * min(255.0, (pedestal + dAmp * sin(dPhase_ + dLinePhase + (2.0 * lSinePeriod * k) / lPeriod))));
-                if (val > maxDrawnVal) {
-                    maxDrawnVal = val;
-                }
-                *(pBuf + lIndex) = val;
-            }
-            dLinePhase += cLinePhaseInc;
-        }
-        for (int snoise = 0; snoise < pixelsToSaturate; ++snoise)
-        {
-            j = (unsigned)((double)(img.Height() - 1) * (double)rand() / (double)RAND_MAX);
-            k = (unsigned)((double)(imgWidth - 1) * (double)rand() / (double)RAND_MAX);
-            *(pBuf + imgWidth * j + k) = (unsigned char)maxValue;
-        }
-        int pnoise;
-        for (pnoise = 0; pnoise < pixelsToDrop; ++pnoise)
-        {
-            j = (unsigned)((double)(img.Height() - 1) * (double)rand() / (double)RAND_MAX);
-            k = (unsigned)((double)(imgWidth - 1) * (double)rand() / (double)RAND_MAX);
-            *(pBuf + imgWidth * j + k) = 0;
-        }
-
-    }
-    else if (pixelType.compare(g_PixelType_16bit) == 0)
-    {
-        double pedestal = maxValue / 2 * exp / 100.0 * GetBinning() * GetBinning();
-        double dAmp16 = dAmp * maxValue / 255.0; // scale to behave like 8-bit
-        unsigned short* pBuf = (unsigned short*) const_cast<unsigned char*>(img.GetPixels());
-        for (j = 0; j < img.Height(); j++)
-        {
-            for (k = 0; k < imgWidth; k++)
-            {
-                long lIndex = imgWidth * j + k;
-                unsigned short val = (unsigned short)(g_IntensityFactor_ * min((double)maxValue, pedestal + dAmp16 * sin(dPhase_ + dLinePhase + (2.0 * lSinePeriod * k) / lPeriod)));
-                if (val > maxDrawnVal) {
-                    maxDrawnVal = val;
-                }
-                *(pBuf + lIndex) = val;
-            }
-            dLinePhase += cLinePhaseInc;
-        }
-        for (int snoise = 0; snoise < pixelsToSaturate; ++snoise)
-        {
-            j = (unsigned)(0.5 + (double)img.Height() * (double)rand() / (double)RAND_MAX);
-            k = (unsigned)(0.5 + (double)imgWidth * (double)rand() / (double)RAND_MAX);
-            *(pBuf + imgWidth * j + k) = (unsigned short)maxValue;
-        }
-        int pnoise;
-        for (pnoise = 0; pnoise < pixelsToDrop; ++pnoise)
-        {
-            j = (unsigned)(0.5 + (double)img.Height() * (double)rand() / (double)RAND_MAX);
-            k = (unsigned)(0.5 + (double)imgWidth * (double)rand() / (double)RAND_MAX);
-            *(pBuf + imgWidth * j + k) = 0;
-        }
-
-    }
-    else if (pixelType.compare(g_PixelType_32bit) == 0)
-    {
-        double pedestal = 127 * exp / 100.0 * GetBinning() * GetBinning();
-        float* pBuf = (float*) const_cast<unsigned char*>(img.GetPixels());
-        float saturatedValue = 255.;
-        memset(pBuf, 0, img.Height() * imgWidth * 4);
-        // static unsigned int j2;
-        for (j = 0; j < img.Height(); j++)
-        {
-            for (k = 0; k < imgWidth; k++)
-            {
-                long lIndex = imgWidth * j + k;
-                double value = (g_IntensityFactor_ * min(255.0, (pedestal + dAmp * sin(dPhase_ + dLinePhase + (2.0 * lSinePeriod * k) / lPeriod))));
-                if (value > maxDrawnVal) {
-                    maxDrawnVal = value;
-                }
-                *(pBuf + lIndex) = (float)value;
-                if (0 == lIndex)
-                {
-                    std::ostringstream os;
-                    os << " first pixel is " << (float)value;
-                    LogMessage(os.str().c_str(), true);
-
-                }
-            }
-            dLinePhase += cLinePhaseInc;
-        }
-
-        for (int snoise = 0; snoise < pixelsToSaturate; ++snoise)
-        {
-            j = (unsigned)(0.5 + (double)img.Height() * (double)rand() / (double)RAND_MAX);
-            k = (unsigned)(0.5 + (double)imgWidth * (double)rand() / (double)RAND_MAX);
-            *(pBuf + imgWidth * j + k) = saturatedValue;
-        }
-        int pnoise;
-        for (pnoise = 0; pnoise < pixelsToDrop; ++pnoise)
-        {
-            j = (unsigned)(0.5 + (double)img.Height() * (double)rand() / (double)RAND_MAX);
-            k = (unsigned)(0.5 + (double)imgWidth * (double)rand() / (double)RAND_MAX);
-            *(pBuf + imgWidth * j + k) = 0;
-        }
-
-    }
-    else if (pixelType.compare(g_PixelType_32bitRGB) == 0)
-    {
-        double pedestal = 127 * exp / 100.0;
-        unsigned int* pBuf = (unsigned int*)rawBuf;
-
-        unsigned char* pTmpBuffer = NULL;
-
-        if (debugRGB)
-        {
-            const unsigned long bfsize = img.Height() * imgWidth * 3;
-            if (bfsize != dbgBufferSize)
-            {
-                if (NULL != pDebug)
-                {
-                    free(pDebug);
-                    pDebug = NULL;
-                }
-                pDebug = (unsigned char*)malloc(bfsize);
-                if (NULL != pDebug)
-                {
-                    dbgBufferSize = bfsize;
-                }
-            }
-        }
-
-        // only perform the debug operations if pTmpbuffer is not 0
-        pTmpBuffer = pDebug;
-        unsigned char* pTmp2 = pTmpBuffer;
-        if (NULL != pTmpBuffer)
-            memset(pTmpBuffer, 0, img.Height() * imgWidth * 3);
-
-        for (j = 0; j < img.Height(); j++)
-        {
-            unsigned char theBytes[4];
-            for (k = 0; k < imgWidth; k++)
-            {
-                long lIndex = imgWidth * j + k;
-                double factor = (2.0 * lSinePeriod * k) / lPeriod;
-                unsigned char value0 = (unsigned char)min(255.0, (pedestal + dAmp * sin(dPhase_ + dLinePhase + factor)));
-                theBytes[0] = value0;
-                if (NULL != pTmpBuffer)
-                    pTmp2[1] = value0;
-                unsigned char value1 = (unsigned char)min(255.0, (pedestal + dAmp * sin(dPhase_ + dLinePhase * 2 + factor)));
-                theBytes[1] = value1;
-                if (NULL != pTmpBuffer)
-                    pTmp2[2] = value1;
-                unsigned char value2 = (unsigned char)min(255.0, (pedestal + dAmp * sin(dPhase_ + dLinePhase * 4 + factor)));
-                theBytes[2] = value2;
-
-                if (NULL != pTmpBuffer) {
-                    pTmp2[3] = value2;
-                    pTmp2 += 3;
-                }
-                theBytes[3] = 0;
-                unsigned long tvalue = *(unsigned long*)(&theBytes[0]);
-                if (tvalue > maxDrawnVal) {
-                    maxDrawnVal = tvalue;
-                }
-                *(pBuf + lIndex) = tvalue;  //value0+(value1<<8)+(value2<<16);
-            }
-            dLinePhase += cLinePhaseInc;
-        }
-
-
-        // ImageJ's AWT images are loaded with a Direct Color processor which expects big endian ARGB,
-        // which on little endian architectures corresponds to BGRA (see: https://en.wikipedia.org/wiki/RGBA_color_model), 
-        // that's why we swapped the Blue and Red components in the generator above.
-        if (NULL != pTmpBuffer)
-        {
-            // write the compact debug image...
-            char ctmp[12];
-            snprintf(ctmp, 12, "%ld", iseq++);
-            writeCompactTiffRGB(imgWidth, img.Height(), pTmpBuffer, ("democamera" + std::string(ctmp)).c_str());
-        }
-
-    }
-
-    // generate an RGB image with bitDepth_ bits in each color
-    else if (pixelType.compare(g_PixelType_64bitRGB) == 0)
-    {
-        double pedestal = maxValue / 2 * exp / 100.0 * GetBinning() * GetBinning();
-        double dAmp16 = dAmp * maxValue / 255.0; // scale to behave like 8-bit
-
-        double maxPixelValue = (1 << (bitDepth_)) - 1;
-        unsigned long long* pBuf = (unsigned long long*) rawBuf;
-        for (j = 0; j < img.Height(); j++)
-        {
-            for (k = 0; k < imgWidth; k++)
-            {
-                long lIndex = imgWidth * j + k;
-                unsigned long long value0 = (unsigned short)min(maxPixelValue, (pedestal + dAmp16 * sin(dPhase_ + dLinePhase + (2.0 * lSinePeriod * k) / lPeriod)));
-                unsigned long long value1 = (unsigned short)min(maxPixelValue, (pedestal + dAmp16 * sin(dPhase_ + dLinePhase * 2 + (2.0 * lSinePeriod * k) / lPeriod)));
-                unsigned long long value2 = (unsigned short)min(maxPixelValue, (pedestal + dAmp16 * sin(dPhase_ + dLinePhase * 4 + (2.0 * lSinePeriod * k) / lPeriod)));
-                unsigned long long tval = value0 + (value1 << 16) + (value2 << 32);
-                if (tval > maxDrawnVal) {
-                    maxDrawnVal = static_cast<double>(tval);
-                }
-                *(pBuf + lIndex) = tval;
-            }
-            dLinePhase += cLinePhaseInc;
-        }
-    }
-
-    if (shouldDisplayImageNumber_) {
-        // Draw a seven-segment display in the upper-left corner of the image,
-        // indicating the image number.
-        int divisor = 1;
-        int numDigits = 0;
-        while (imageCounter_ / divisor > 0) {
-            divisor *= 10;
-            numDigits += 1;
-        }
-        int remainder = imageCounter_;
-        for (int i = 0; i < numDigits; ++i) {
-            // Black out the background for this digit.
-            // TODO: for now, hardcoded sizes, which will cause buffer
-            // overflows if the image size is too small -- but that seems
-            // unlikely.
-            int xBase = (numDigits - i - 1) * 20 + 2;
-            int yBase = 2;
-            for (int x = xBase; x < xBase + 20; ++x) {
-                for (int y = yBase; y < yBase + 20; ++y) {
-                    long lIndex = imgWidth * y + x;
-
-                    if (pixelType.compare(g_PixelType_8bit) == 0) {
-                        *((unsigned char*)rawBuf + lIndex) = 0;
-                    }
-                    else if (pixelType.compare(g_PixelType_16bit) == 0) {
-                        *((unsigned short*)rawBuf + lIndex) = 0;
-                    }
-                    else if (pixelType.compare(g_PixelType_32bit) == 0 ||
-                        pixelType.compare(g_PixelType_32bitRGB) == 0) {
-                        *((unsigned int*)rawBuf + lIndex) = 0;
-                    }
-                }
-            }
-            // Draw each segment, if appropriate.
-            int digit = remainder % 10;
-            for (int segment = 0; segment < 7; ++segment) {
-                if (!((1 << segment) & SEVEN_SEGMENT_RULES[digit])) {
-                    // This segment is not drawn.
-                    continue;
-                }
-                // Determine if the segment is horizontal or vertical.
-                int xStep = SEVEN_SEGMENT_HORIZONTALITY[segment];
-                int yStep = (xStep + 1) % 2;
-                // Calculate starting point for drawing the segment.
-                int xStart = xBase + SEVEN_SEGMENT_X_OFFSET[segment] * 16;
-                int yStart = yBase + SEVEN_SEGMENT_Y_OFFSET[segment] * 8 + 1;
-                // Draw one pixel at a time of the segment.
-                for (int pixNum = 0; pixNum < 8 * (xStep + 1); ++pixNum) {
-                    long lIndex = imgWidth * (yStart + pixNum * yStep) + (xStart + pixNum * xStep);
-                    if (pixelType.compare(g_PixelType_8bit) == 0) {
-                        *((unsigned char*)rawBuf + lIndex) = static_cast<unsigned char>(maxDrawnVal);
-                    }
-                    else if (pixelType.compare(g_PixelType_16bit) == 0) {
-                        *((unsigned short*)rawBuf + lIndex) = static_cast<unsigned short>(maxDrawnVal);
-                    }
-                    else if (pixelType.compare(g_PixelType_32bit) == 0 ||
-                        pixelType.compare(g_PixelType_32bitRGB) == 0) {
-                        *((unsigned int*)rawBuf + lIndex) = static_cast<unsigned int>(maxDrawnVal);
-                    }
-                }
-            }
-            remainder /= 10;
-        }
-    }
-    if (multiROIXs_.size() > 0)
-    {
-        // Blank out all pixels that are not in an ROI.
-        // TODO: it would be more efficient to only populate pixel values that
-        // *are* in an ROI, but that would require substantial refactoring of
-        // this function.
-        for (unsigned int i = 0; i < imgWidth; ++i)
-        {
-            for (unsigned j = 0; j < img.Height(); ++j)
-            {
-                bool shouldKeep = false;
-                for (unsigned int k = 0; k < multiROIXs_.size(); ++k)
-                {
-                    unsigned xOffset = multiROIXs_[k] - roiX_;
-                    unsigned yOffset = multiROIYs_[k] - roiY_;
-                    unsigned width = multiROIWidths_[k];
-                    unsigned height = multiROIHeights_[k];
-                    if (i >= xOffset && i < xOffset + width &&
-                        j >= yOffset && j < yOffset + height)
-                    {
-                        // Pixel is inside an ROI.
-                        shouldKeep = true;
-                        break;
-                    }
-                }
-                if (!shouldKeep)
-                {
-                    // Blank the pixel.
-                    long lIndex = imgWidth * j + i;
-                    if (pixelType.compare(g_PixelType_8bit) == 0)
-                    {
-                        *((unsigned char*)rawBuf + lIndex) = static_cast<unsigned char>(multiROIFillValue_);
-                    }
-                    else if (pixelType.compare(g_PixelType_16bit) == 0)
-                    {
-                        *((unsigned short*)rawBuf + lIndex) = static_cast<unsigned short>(multiROIFillValue_);
-                    }
-                    else if (pixelType.compare(g_PixelType_32bit) == 0 ||
-                        pixelType.compare(g_PixelType_32bitRGB) == 0)
-                    {
-                        *((unsigned int*)rawBuf + lIndex) = static_cast<unsigned int>(multiROIFillValue_);
-                    }
-                }
-            }
-        }
-    }
-    dPhase_ += lSinePeriod / 4.;
 }
 
 bool CDemoCamera::GenerateMHTestPattern(ImgBuffer& img) {
     unsigned width = img.Width(), height = img.Height();
-    const unsigned char maxVal = 65535;
-    unsigned short* rawShorts = reinterpret_cast<unsigned short*>(img.GetPixelsRW());
-    for (unsigned y = 0; y < height; ++y)
+    //const unsigned char maxVal = 65535;
+    char buf[MM::MaxStrLength];
+    GetProperty(MM::g_Keyword_PixelType, buf);
+    std::string pixelType(buf);
+
+    int maxValue = 1 << GetBitDepth();
+    long nrPixels = img.Width() * img.Height();
+    int check_stride = 50;
+
+    if (pixelType.compare(g_PixelType_8bit) == 0)
     {
-        for (unsigned x = 0; x < width; ++x)
+        maxValue = 255;
+        unsigned char* rawShorts = (unsigned char*) const_cast<unsigned char*>(img.GetPixels());
+        for (unsigned y = 0; y < height; ++y)
         {
-            if (y == 0)
+            for (unsigned x = 0; x < width; ++x)
             {
-                if (int(x/100)%2==0) {
-                    rawShorts[x] = 0;
+                if (y == 0)
+                {
+                    if (int(x / check_stride) % 2 == 0) {
+                        rawShorts[x] = (unsigned char)0;
+                    }
+                    else {
+                        rawShorts[x] = (unsigned char)maxValue;
+                    }
                 }
                 else {
-                    rawShorts[x] = maxVal;
+                    if (int(y / check_stride) % 2 == 0) {
+                        rawShorts[x + y * width] = (unsigned char)rawShorts[x];
+                    }
+                    else {
+                        rawShorts[x + y * width] = (unsigned char)(maxValue - rawShorts[x]);
+                    }
                 }
             }
-            else {
-                //Should copy the line above?
-                rawShorts[x + y * width] = rawShorts[x];
+        }
+    }
+    else if (pixelType.compare(g_PixelType_16bit) == 0)
+    {
+        maxValue = 65535;
+        unsigned short* rawShorts = (unsigned short*) const_cast<unsigned char*>(img.GetPixels());
+        for (unsigned y = 0; y < height; ++y)
+        {
+            for (unsigned x = 0; x < width; ++x)
+            {
+                if (y == 0)
+                {
+                    if (int(x / check_stride) % 2 == 0) {
+                        rawShorts[x] = (unsigned short)0;
+                    }
+                    else {
+                        rawShorts[x] = (unsigned short)maxValue;
+                    }
+                }
+                else {
+                    if (int(y / check_stride) % 2 == 0) {
+                        rawShorts[x + y * width] = (unsigned short)rawShorts[x];
+                    }
+                    else {
+                        rawShorts[x + y * width] = (unsigned short)(maxValue - rawShorts[x]);
+                    }
+                }
             }
         }
     }
     return true;
 }
 
-bool CDemoCamera::GenerateColorTestPattern(ImgBuffer& img)
-{
+bool CDemoCamera::GenerateMHHisto(ImgBuffer& img) {
     unsigned width = img.Width(), height = img.Height();
-    switch (img.Depth())
+    //const unsigned char maxVal = 65535;
+    char buf[MM::MaxStrLength];
+    GetProperty(MM::g_Keyword_PixelType, buf);
+    std::string pixelType(buf);
+    int maxValue = 1 << GetBitDepth();
+    std::vector<int>old_bins;
+    if (!bins_.empty()) {
+        old_bins = bins_;
+    }
+    else {
+
+    }
+    bins_.clear();
+    int nbins = width;
+    
+    //For chunks...
+    int n_channels = 6;
+
+    if (rates_or_decays_) {
+        if (counts_.empty()) {//Initialise
+            for (int i = 0; i < nbins; i++) {
+                int countrate = (int)((0.75 * height) * (double)rand() / (double)RAND_MAX);
+                counts_.push_back(countrate);
+            }
+        }
+        else {//Fluctuate smoothly
+            for (int i = 0; i < nbins; i++) {
+                float multiplier = 1.025 - (0.05 * (double)rand() / (double)RAND_MAX); 
+                //Don't let it get too high or too low
+                if (counts_.at(i) > 0.75*height) {
+                    multiplier = 1.025 - (0.07 * (double)rand() / (double)RAND_MAX);
+                }
+                if (counts_.at(i) < 0.25*height) {
+                    multiplier = 1.035 - (0.05 * (double)rand() / (double)RAND_MAX);
+                }
+                int newval = (int)(multiplier * counts_.at(i));
+                counts_.at(i) = newval;
+            }
+        }
+    }
+
+    for (int i = 0; i < width; i++) {
+        if (rates_or_decays_) {
+            int threshold = counts_[(int)((float)i* n_channels /(float)width)];
+            bins_.push_back(threshold);
+        } else {
+            //int threshold = (int)((float)width * i / (float)height);
+            int t = (int)((float)Lifetime_range_ * (float)i / (float)width);
+            int threshold = (int)(height * exp((-1 * t) / (float)Sim_lifetime_));
+            int noise = (int)((height / 10) * (double)rand() / (double)RAND_MAX);
+            //threshold = threshold + noise;
+            bins_.push_back(threshold + noise);
+        }
+    }
+
+    if (pixelType.compare(g_PixelType_8bit) == 0)
     {
-    case 1:
-    {
-        const unsigned char maxVal = 255;
-        unsigned char* rawBytes = img.GetPixelsRW();
+        maxValue = 255;
+        unsigned char* rawShorts = (unsigned char*) const_cast<unsigned char*>(img.GetPixels());
         for (unsigned y = 0; y < height; ++y)
         {
             for (unsigned x = 0; x < width; ++x)
             {
-                if (y == 0)
-                {
-                    rawBytes[x] = (unsigned char)(maxVal * (x + 1) / (width - 1));
+                if (y > bins_[x]) {
+                    rawShorts[x + y * width] = (unsigned char)0;
                 }
                 else {
-                    rawBytes[x + y * width] = rawBytes[x];
+                    rawShorts[x + y * width] = (unsigned char)maxValue;
                 }
             }
         }
-        return true;
     }
-    case 2:
+    else if (pixelType.compare(g_PixelType_16bit) == 0)
     {
-        const unsigned short maxVal = 65535;
-        unsigned short* rawShorts =
-            reinterpret_cast<unsigned short*>(img.GetPixelsRW());
+        maxValue = 65535;
+        unsigned short* rawShorts = (unsigned short*) const_cast<unsigned char*>(img.GetPixels());
         for (unsigned y = 0; y < height; ++y)
         {
             for (unsigned x = 0; x < width; ++x)
             {
-                if (y == 0)
-                {
-                    rawShorts[x] = (unsigned short)(maxVal * (x + 1) / (width - 1));
+                if (y > bins_[x]) {
+                    rawShorts[x + y * width] = (unsigned short)0;
                 }
                 else {
-                    rawShorts[x + y * width] = rawShorts[x];
+                    rawShorts[x + y * width] = (unsigned short)maxValue;
                 }
             }
         }
-        return true;
     }
-    case 4:
-    {
-        const unsigned long maxVal = 255;
-        unsigned* rawPixels = reinterpret_cast<unsigned*>(img.GetPixelsRW());
-        for (unsigned section = 0; section < 8; ++section)
-        {
-            unsigned ystart = section * (height / 8);
-            unsigned ystop = section == 7 ? height : ystart + (height / 8);
-            for (unsigned y = ystart; y < ystop; ++y)
-            {
-                for (unsigned x = 0; x < width; ++x)
-                {
-                    rawPixels[x + y * width] = 0;
-                    for (unsigned component = 0; component < 4; ++component)
-                    {
-                        unsigned sample = 0;
-                        if (component == section ||
-                            (section >= 4 && section - 4 != component))
-                        {
-                            sample = maxVal * (x + 1) / (width - 1);
-                        }
-                        sample &= 0xff; // Just in case
-                        rawPixels[x + y * width] |= sample << (8 * component);
-                    }
-                }
-            }
-        }
-        return true;
-    }
-    }
-    return false;
+    return true;
 }
 
 
@@ -2449,129 +2154,6 @@ void CDemoCamera::TestResourceLocking(const bool recurse)
 /**
 * Generate an image with offset plus noise
 */
-void CDemoCamera::AddBackgroundAndNoise(ImgBuffer& img, double mean, double stdDev)
-{
-    char buf[MM::MaxStrLength];
-    GetProperty(MM::g_Keyword_PixelType, buf);
-    std::string pixelType(buf);
-
-    int maxValue = 1 << GetBitDepth();
-    long nrPixels = img.Width() * img.Height();
-    if (pixelType.compare(g_PixelType_8bit) == 0)
-    {
-        unsigned char* pBuf = (unsigned char*) const_cast<unsigned char*>(img.GetPixels());
-        for (long i = 0; i < nrPixels; i++)
-        {
-            double value = GaussDistributedValue(mean, stdDev);
-            if (value < 0)
-            {
-                value = 0;
-            }
-            else if (value > maxValue)
-            {
-                value = maxValue;
-            }
-            *(pBuf + i) = (unsigned char)value;
-        }
-    }
-    else if (pixelType.compare(g_PixelType_16bit) == 0)
-    {
-        unsigned short* pBuf = (unsigned short*) const_cast<unsigned char*>(img.GetPixels());
-        for (long i = 0; i < nrPixels; i++)
-        {
-            double value = GaussDistributedValue(mean, stdDev);
-            if (value < 0)
-            {
-                value = 0;
-            }
-            else if (value > maxValue)
-            {
-                value = maxValue;
-            }
-            *(pBuf + i) = (unsigned short)value;
-        }
-    }
-}
-
-
-/**
-* Adds signal to an image
-* Assume a homogenuous illumination
-* Calculates the signal for each pixel individually as:
-* photon flux * exposure time / conversion factor
-* Assumes QE of 100%
-*/
-void CDemoCamera::AddSignal(ImgBuffer& img, double photonFlux, double exp, double cf)
-{
-    char buf[MM::MaxStrLength];
-    GetProperty(MM::g_Keyword_PixelType, buf);
-    std::string pixelType(buf);
-
-    int maxValue = (1 << GetBitDepth()) - 1;
-    long nrPixels = img.Width() * img.Height();
-    double photons = photonFlux * exp;
-    double shotNoise = sqrt(photons);
-    double digitalValue = photons / cf;
-    double shotNoiseDigital = shotNoise / cf;
-    if (pixelType.compare(g_PixelType_8bit) == 0)
-    {
-        unsigned char* pBuf = (unsigned char*) const_cast<unsigned char*>(img.GetPixels());
-        for (long i = 0; i < nrPixels; i++)
-        {
-            double value = *(pBuf + i) + GaussDistributedValue(digitalValue, shotNoiseDigital);
-            if (value < 0)
-            {
-                value = 0;
-            }
-            else if (value > maxValue)
-            {
-                value = maxValue;
-            }
-            *(pBuf + i) = (unsigned char)value;
-        }
-    }
-    else if (pixelType.compare(g_PixelType_16bit) == 0)
-    {
-        unsigned short* pBuf = (unsigned short*) const_cast<unsigned char*>(img.GetPixels());
-        for (long i = 0; i < nrPixels; i++)
-        {
-            double value = *(pBuf + i) + GaussDistributedValue(digitalValue, shotNoiseDigital);
-            if (value < 0)
-            {
-                value = 0;
-            }
-            else if (value > maxValue)
-            {
-                value = maxValue;
-            }
-            *(pBuf + i) = (unsigned short)value;
-        }
-    }
-}
-
-
-/**
- * Uses Marsaglia polar method to generate Gaussian distributed value.
- * Then distributes this around mean with the desired std
- */
-double CDemoCamera::GaussDistributedValue(double mean, double std)
-{
-    double s = 2;
-    double u = 1; // incosequential, but avoid potantial use of uninitialized value
-    double v;
-    double halfRandMax = (double)RAND_MAX / 2.0;
-    while (s >= 1 || s <= 0)
-    {
-        // get random values between -1 and 1
-        u = (double)rand() / halfRandMax - 1.0;
-        v = (double)rand() / halfRandMax - 1.0;
-        s = u * u + v * v;
-    }
-    double tmp = sqrt(-2 * log(s) / s);
-    double x = u * tmp;
-
-    return mean + std * x;
-}
 
 int CDemoCamera::RegisterImgManipulatorCallBack(ImgManipulator* imgManpl)
 {
