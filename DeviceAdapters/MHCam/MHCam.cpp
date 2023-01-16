@@ -40,8 +40,8 @@ double g_IntensityFactor_ = 1.0;
 
 // External names used used by the rest of the system
 // to load particular device from the "DemoCamera.dll" library
-const char* g_CameraDeviceName = "DCam";
-const char* g_HubDeviceName = "DHub";
+const char* g_CameraDeviceName = "MH Cam";
+const char* g_HubDeviceName = "MH Hub";
 
 // constants for naming pixel types (allowed values of the "PixelType" property)
 const char* g_PixelType_8bit = "8bit";
