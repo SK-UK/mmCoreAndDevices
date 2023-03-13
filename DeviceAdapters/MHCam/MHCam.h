@@ -202,7 +202,9 @@ private:
     bool GenerateMHHisto(ImgBuffer& img);
     int ResizeImageBuffer();
     void GenerateDecay(ImgBuffer& img);
-    void TranslateRecord(unsigned int val);
+    double TimestampDeltaToUs(unsigned int timestamp_delta);
+    void TranslateRecord(unsigned int val, ImgBuffer& img);
+    int GetPixnumInLine(unsigned int timestamp, unsigned int linestart_timestamp);
     unsigned int ParseTTTR(unsigned int val);
 
     static const double nominalPixelSizeUm_;
@@ -267,6 +269,12 @@ private:
     unsigned int special_mask_;
     unsigned int channel_mask_;
     unsigned int time_mask_;
+    unsigned int nsync_mask_;
+    double pixel_dwelltime_us_;
+    double timebase_ps_;
+    unsigned int last_line_start_;
+    int current_line_;
+    int nBeams;
 };
 
 class MySequenceThread : public MMDeviceThreadBase

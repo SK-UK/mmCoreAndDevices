@@ -168,9 +168,15 @@ CDemoCamera::CDemoCamera() :
     Sim_lifetime_(2000),
     Lifetime_range_(12500),
     rates_or_decays_(false),
-    special_mask_(0x80000000),
-    channel_mask_(0x7C000000),
-    time_mask_(0x3FFFFFF)
+    special_mask_(0x80000000),//0b10000000000000000000000000000000
+    channel_mask_(0x7E000000),//0b01111110000000000000000000000000
+    time_mask_(0x1FFFC00),//0b00000001111111111111110000000000
+    nsync_mask_(0x3FF),//0b00000000000000000000001111111111
+    pixel_dwelltime_us_(1.0),
+    timebase_ps_(80),
+    last_line_start_(0),
+    current_line_(-99),
+    nBeams(1)
 {
     memset(testProperty_, 0, sizeof(testProperty_));
 
@@ -1910,25 +1916,83 @@ int CDemoCamera::ResizeImageBuffer()
     return DEVICE_OK;
 }
 
-void CDemoCamera::GenerateDecay(ImgBuffer& img)
+void CDemoCamera::GenerateDecay(ImgBuffer &img)
 {
 
 }
 
+double CDemoCamera::TimestampDeltaToUs(unsigned int timestamp_delta) {
+    return (double(timestamp_delta) * timebase_ps_);
+}
 
-void CDemoCamera::TranslateRecord(unsigned int val) {
+void CDemoCamera::TranslateRecord(unsigned int val, ImgBuffer& img) {
     //Try to extract relevant information with a minimum amount of duplication
     //Bit-mask a copy, then shift as appropriate for each element?
     //Reminder: For MultiHarp
     //val will be one record from the unsigned int buffer[TTREADMAX]
+    //Multiharp: ## special: 1 ## channel: 6 ## dtime : 15 ## nsync : 10
+    //Do some shifting for direct comparisons
     bool special = (special_mask_ & val) == special_mask_;
-    unsigned int channel = (channel_mask_ & val);
-    unsigned int timestamp = (time_mask_ & val);
+    unsigned int channel = (channel_mask_ & val) >> 25;
+    unsigned int timestamp = (time_mask_ & val) >> 10;
+    unsigned int nsync = (nsync_mask_ & val);
     if (special) {
-        //Handle special channel numbers here
+        //Handle special channel numbers here:
+        //Line start - 000001 :: Line end - 000010 :: Frame start - 000011
+        switch (channel) {
+            case 1:
+                last_line_start_ = timestamp;
+                if (current_line_ >= -1) {
+                    //Once we've had a frame clock...
+                    current_line_++;
+                }
+            case 2:
+                break;
+            case 3:
+                current_line_ = -1;//First line clock will then correspond to line 0
+                break;
+            default:
+                break;
+        }
     }
-    else {
+    if (current_line_>0) {
+        //If we have a frame clock...
         //Translate timestamp - maybe manipulate image via the pointer directly here?
+        int x_px = GetPixnumInLine(timestamp,last_line_start_);
+        //These parts to be moved into superfunction. Based off the memory structure rather than the variable interpretations, which may change out of sync?
+        char buf[MM::MaxStrLength];
+        GetProperty(MM::g_Keyword_PixelType, buf);
+        std::string pixelType(buf);
+        int maxValue = 1 << GetBitDepth();
+        long nrPixels = img.Width() * img.Height();
+        int target_px = x_px + current_line_ * cameraCCDXSize_;
+        if (pixelType.compare(g_PixelType_8bit) == 0){//REALLY shouldn't be using this... too few photons
+            maxValue = 255;//Future overflow check? Current behaviour is to saturate
+            unsigned char* rawShorts = (unsigned char*) const_cast<unsigned char*>(img.GetPixels());
+            if (rawShorts[target_px] != maxValue) {
+                rawShorts[target_px] += 1;
+            }
+        } else if (pixelType.compare(g_PixelType_16bit) == 0) {
+            maxValue = 65535;//Future overflow check? Current behaviour is to saturate
+            unsigned short* rawShorts = (unsigned short*) const_cast<unsigned char*>(img.GetPixels());
+            channel * cameraCCDXSize_* (cameraCCDYSize_ / nBeams);
+            if (rawShorts[target_px] != maxValue) {
+                rawShorts[target_px] += 1;
+            }
+        }
+    } else {
+        //Not sure what to do if we are in an unknown position in a scan... could accumulate in separate memory and shift/fix retrospectively?
+    }
+}
+
+int CDemoCamera::GetPixnumInLine(unsigned int timestamp, unsigned int linestart_timestamp) {
+    //Try to calculate which pixel in a line a photon belongs in
+    double time_into_line = TimestampDeltaToUs(timestamp - linestart_timestamp);
+    int pixnum = std::floor(time_into_line/pixel_dwelltime_us_);
+    //Assume the fast scan axis is in x...
+    if (pixnum > cameraCCDXSize_) {
+        //If there's too many pixels in a line, dump things here
+        pixnum = cameraCCDXSize_;
     }
 }
 
@@ -1976,8 +2040,9 @@ void CDemoCamera::GenerateSyntheticImage(ImgBuffer& img, double exp)
     GetProperty(MM::g_Keyword_PixelType, buf);
     std::string pixelType(buf);
 
-    if (img.Height() == 0 || img.Width() == 0 || img.Depth() == 0)
+    if (img.Height() == 0 || img.Width() == 0 || img.Depth() == 0) {
         return;
+    }
 }
 
 bool CDemoCamera::GenerateMHTestPattern(ImgBuffer& img) {
