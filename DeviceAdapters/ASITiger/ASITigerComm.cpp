@@ -208,24 +208,40 @@ int CTigerCommHub::DetectInstalledDevices()
          case 'x': // XYMotor type
             if (build.vAxesType[i+1] == 'x')  // make sure we have a pair of axes
             {
-               // we have an XY pair
-               name = g_XYStageDeviceName;
-               twoaxis = true;
-               i++; // skip one code because we added two axes in one step
+                // we have an XY pair
+                name = g_XYStageDeviceName;
+                twoaxis = true;
+                i++; // skip one code because we added two axes in one step
             }
             else
-               return ERR_TIGER_PAIR_NOT_PRESENT;
+            {
+                return ERR_TIGER_PAIR_NOT_PRESENT;
+            }
             break;
          case 'u': // scanner type (used to be MMirror type)
             if (build.vAxesType[i+1] == 'u')  // make sure we have a pair of axes
             {
-               name = g_ScannerDeviceName;
-               twoaxis = true;
-               i++; // skip one code because we added two axes in one step
+                name = g_ScannerDeviceName;
+                twoaxis = true;
+                i++; // skip one code because we added two axes in one step
             }
             else
-               return ERR_TIGER_PAIR_NOT_PRESENT;
+            {
+                return ERR_TIGER_PAIR_NOT_PRESENT;
+            }
             break;
+         case 'y': // DAC XY Stage
+             if (build.vAxesType[i+1] == 'y')
+             {
+                 name = g_DacXYStageDeviceName;
+                 twoaxis = true;
+                 i++; // skip one code because we added two axes in one step
+             }
+             else
+             {
+                 return ERR_TIGER_PAIR_NOT_PRESENT;
+             }
+             break;
          case 'p':  // piezo focus like ADEPT
          case 'a':  // generic piezo axis
             name = g_PiezoDeviceName;
@@ -274,12 +290,21 @@ int CTigerCommHub::DetectInstalledDevices()
             command << build.vAxesAddr[i] << "BU";
             ret = QueryCommandVerify(command.str(), "TGPMT");
             if (ret == ERR_UNRECOGNIZED_ANSWER)
-            { // error, guess 2 as reasonable default
-               channels = 2;
+            { 
+		// error, guess 2 as reasonable default
+            	channels = 2;
             }
             else
             {
-               RETURN_ON_MM_ERROR ( ParseAnswerAfterUnderscore(channels) );
+                // Check for 'S' at the end of the serial answer (TGLED_S or TGLEDS)
+                if (LastSerialAnswerChar() == 83)
+                {
+                    channels = 4;
+                }
+                else // TGLED_4 build
+                {
+                    RETURN_ON_MM_ERROR(ParseAnswerAfterUnderscore(channels));
+                }
             }
             break;
          case 'b':  // Tunable Lens
@@ -303,7 +328,9 @@ int CTigerCommHub::DetectInstalledDevices()
       // now form rest of extended name
       name.push_back(g_NameInfoDelimiter);
       if (twoaxis)
-         name.push_back(build.vAxesLetter[i-1]);
+      {
+          name.push_back(build.vAxesLetter[i - 1]);
+      }
       name.push_back(build.vAxesLetter[i]);
       name.push_back(g_NameInfoDelimiter);
       name.append(build.vAxesAddrHex[i]);
@@ -375,5 +402,4 @@ bool CTigerCommHub::Busy()
    // this is a query that the MM core can make of our device, i.e. it's a required part of our public API
    // define the hub to never be busy, i.e. it can always accept a new command or query
    return false;
-
 }

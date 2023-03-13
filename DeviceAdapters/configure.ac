@@ -1,6 +1,5 @@
-
-AC_PREREQ([2.64])
-AC_INIT([Micro-Manager], [1.4], [info@micro-manager.org])
+AC_PREREQ([2.69])
+AC_INIT([Micro-Manager], [2])
 AC_CONFIG_MACRO_DIR([../m4])
 AC_CONFIG_SRCDIR([DemoCamera/DemoCamera.cpp])
 AC_CANONICAL_HOST
@@ -8,10 +7,11 @@ AM_INIT_AUTOMAKE([foreign 1.11])
 LT_PREREQ([2.2.6])
 LT_INIT([disable-static])
 
-AC_PROG_CXX([clang++ llvm-g++ g++ c++])
-AC_PROG_CC([clang llvm-gcc gcc cc])
+AC_PROG_CC([cc gcc clang])
+AC_PROG_CXX([c++ g++ clang++])
+AX_CXX_COMPILE_STDCXX([14], [noext])
 
-MM_GMOCK([$srcdir/../testing/googletest], [\$(top_srcdir)/../testing/googletest])
+MM_GMOCK([$srcdir/../../testing/googletest], [\$(top_srcdir)/../../testing/googletest])
 AM_CONDITIONAL([BUILD_CPP_TESTS], [test "x$have_gmock" = xyes])
 
 # TODO: Following should decide whether adapters depending on BOOST get build
@@ -449,7 +449,6 @@ AC_SUBST(MMPREFIX)
 
 
 # Checks for library functions.
-AC_HEADER_STDC
 AC_CHECK_FUNCS([memset])
 
 
@@ -473,12 +472,12 @@ m4_define([device_adapter_dirs], [m4_strip([
    Basler
    BlueboxOptics_niji
    CARVII
-   ChuoSeiki_MD5000
-   ChuoSeiki_QT
    CNCMicroscope
    CNCMicroscope/ArduinoNeoPixelShutter
    CNCMicroscope/RAMPSStage
    CSUW1
+   ChuoSeiki_MD5000
+   ChuoSeiki_QT
    Cobolt
    CoherentCube
    CoherentOBIS
@@ -493,9 +492,9 @@ m4_define([device_adapter_dirs], [m4_strip([
    FakeCamera
    FocalPoint
    FreeSerialPort
+   HIDManager
    HamiltonMVP
    HamiltonMVP/unittest
-   HIDManager
    HydraLMT200
    IDS_uEye
    IIDC
@@ -508,6 +507,7 @@ m4_define([device_adapter_dirs], [m4_strip([
    LeicaDMI
    LeicaDMR
    LeicaDMSTC
+   LightSheetManager
    Ludl
    LudlLow
    LumencorSpectra
@@ -516,6 +516,7 @@ m4_define([device_adapter_dirs], [m4_strip([
    Marzhauser
    Marzhauser-LStep
    MarzhauserLStepOld
+   MicroFPGA
    MicroPoint
    Modbus
    Motic_mac
@@ -530,12 +531,12 @@ m4_define([device_adapter_dirs], [m4_strip([
    Oxxius
    OxxiusCombiner
    PI
+   PIEZOCONCEPT
    PI_GCS
    PI_GCS_2
    PVCAM
    ParallelPort
    Pecon
-   PIEZOCONCEPT
    Piezosystem_30DV50
    Piezosystem_NV120_1
    Piezosystem_NV40_1
@@ -567,6 +568,7 @@ m4_define([device_adapter_dirs], [m4_strip([
    ThorlabsElliptecSlider
    ThorlabsFilterWheel
    ThorlabsSC10
+   Thorlabs_ELL14
    Tofra
    Toptica_iBeamSmartCW
    TriggerScope
@@ -585,6 +587,7 @@ m4_define([device_adapter_dirs], [m4_strip([
    XCiteLed
    XCiteXT600
    XLight
+   XLightV3
    Xcite
    YodnE600
    Yokogawa

@@ -31,6 +31,7 @@
 #include <algorithm>
 #include "WriteCompactTiffRGB.h"
 #include <iostream>
+#include <future>
 
 
 
@@ -364,6 +365,7 @@ int CDemoCamera::Initialize()
    vector<string> bitDepths;
    bitDepths.push_back("8");
    bitDepths.push_back("10");
+   bitDepths.push_back("11");
    bitDepths.push_back("12");
    bitDepths.push_back("14");
    bitDepths.push_back("16");
@@ -395,6 +397,17 @@ int CDemoCamera::Initialize()
          SetPropertyLimits(propName.c_str(), lowerLimit, upperLimit);
       }
 	}
+
+   // Test Property with an async callback
+   // When the leader is set the follower will be set to the same value
+   // with some delay (default 2 seconds).
+   // This is to allow downstream testing of callbacks originating from
+   // device threads.
+   pAct = new CPropertyAction (this, &CDemoCamera::OnAsyncLeader);
+   CreateStringProperty("AsyncPropertyLeader", "init", false, pAct);
+   pAct = new CPropertyAction (this, &CDemoCamera::OnAsyncFollower);
+   CreateStringProperty("AsyncPropertyFollower", "init", true, pAct);
+   CreateIntegerProperty("AsyncPropertyDelayMS", 2000, false);
 
    //pAct = new CPropertyAction(this, &CDemoCamera::OnSwitch);
    //nRet = CreateIntegerProperty("Switch", 0, false, pAct);
@@ -1083,7 +1096,6 @@ int CDemoCamera::InsertImage()
    // Important:  metadata about the image are generated here:
    Metadata md;
    md.put("Camera", label);
-   md.put(MM::g_Keyword_Metadata_StartTime, CDeviceUtils::ConvertToString(sequenceStartTime_.getMsec()));
    md.put(MM::g_Keyword_Elapsed_Time_ms, CDeviceUtils::ConvertToString((timeStamp - sequenceStartTime_).getMsec()));
    md.put(MM::g_Keyword_Metadata_ROI_X, CDeviceUtils::ConvertToString( (long) roiX_)); 
    md.put(MM::g_Keyword_Metadata_ROI_Y, CDeviceUtils::ConvertToString( (long) roiY_)); 
@@ -1121,9 +1133,10 @@ int CDemoCamera::InsertImage()
  * Do actual capturing
  * Called from inside the thread  
  */
-int CDemoCamera::RunSequenceOnThread(MM::MMTime startTime)
+int CDemoCamera::RunSequenceOnThread()
 {
    int ret=DEVICE_ERR;
+   MM::MMTime startTime = GetCurrentMMTime();
    
    // Trigger
    if (triggerDevice_.length() > 0) {
@@ -1142,8 +1155,7 @@ int CDemoCamera::RunSequenceOnThread(MM::MMTime startTime)
    }
 
    // Simulate exposure duration
-   double finishTime = exposure * (imageCounter_ + 1);
-   while ((GetCurrentMMTime() - startTime).getMsec() < finishTime)
+   while ((GetCurrentMMTime() - startTime).getMsec() < exposure)
    {
       CDeviceUtils::SleepMs(1);
    }
@@ -1207,9 +1219,9 @@ void MySequenceThread::Start(long numImages, double intervalMs)
    stop_ = false;
    suspend_=false;
    activate();
-   actualDuration_ = 0;
+   actualDuration_ = MM::MMTime{};
    startTime_= camera_->GetCurrentMMTime();
-   lastFrameTime_ = 0;
+   lastFrameTime_ = MM::MMTime{};
 }
 
 bool MySequenceThread::IsStopped(){
@@ -1239,7 +1251,7 @@ int MySequenceThread::svc(void) throw()
    {
       do
       {  
-         ret = camera_->RunSequenceOnThread(startTime_);
+         ret = camera_->RunSequenceOnThread();
       } while (DEVICE_OK == ret && !IsStopped() && imageCounter_++ < numImages_-1);
       if (IsStopped())
          camera_->LogMessage("SeqAcquisition interrupted by the user\n");
@@ -1289,6 +1301,41 @@ int CDemoCamera::OnTestProperty(MM::PropertyBase* pProp, MM::ActionType eAct, lo
 
 }
 
+void CDemoCamera::SlowPropUpdate(std::string leaderValue)
+{
+      // wait in order to simulate a device doing something slowly
+      // in a thread
+      long delay; GetProperty("AsyncPropertyDelayMS", delay);
+      CDeviceUtils::SleepMs(delay);
+      {
+         MMThreadGuard g(asyncFollowerLock_);
+         asyncFollower_ = leaderValue;
+      }
+      OnPropertyChanged("AsyncPropertyFollower", leaderValue.c_str());
+   }
+
+int CDemoCamera::OnAsyncFollower(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet){
+      MMThreadGuard g(asyncFollowerLock_);
+      pProp->Set(asyncFollower_.c_str());
+   }
+   // no AfterSet as this is a readonly property
+   return DEVICE_OK;
+}
+
+int CDemoCamera::OnAsyncLeader(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet){
+      pProp->Set(asyncLeader_.c_str());
+   }
+   if (eAct == MM::AfterSet)
+   {
+      pProp->Get(asyncLeader_);
+      fut_ = std::async(std::launch::async, &CDemoCamera::SlowPropUpdate, this, asyncLeader_);
+   }
+	return DEVICE_OK;
+}
 
 /**
 * Handles "Binning" property.
@@ -1468,6 +1515,11 @@ int CDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
 					bytesPerComponent = 2;
                bitDepth_ = 10;
                ret=DEVICE_OK;
+            break;
+            case 11:
+                    bytesPerComponent = 2;
+                bitDepth_ = 11;
+                ret = DEVICE_OK;
             break;
             case 12:
 					bytesPerComponent = 2;
@@ -2773,10 +2825,15 @@ int CDemoFilterWheel::OnState(MM::PropertyBase* pProp, MM::ActionType eAct)
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 CDemoStateDevice::CDemoStateDevice() : 
+numPatterns_(50),
 numPos_(10), 
-initialized_(false), 
+initialized_(false),
 changedTime_(0.0),
-position_(0)
+busy_(false),
+sequenceOn_(false),
+gateOpen_(true),
+position_(0),
+isClosed_(true)
 {
    InitializeDefaultErrorMessages();
    SetErrorText(ERR_UNKNOWN_POSITION, "Requested position not available in this device");
@@ -2829,13 +2886,15 @@ int CDemoStateDevice::Initialize()
    // Description
    ret = CreateStringProperty(MM::g_Keyword_Description, "Demo state device driver", true);
    if (DEVICE_OK != ret)
-      return ret;
+      return ret; 
 
    // Set timer for the Busy signal, or we'll get a time-out the first time we check the state of the shutter, for good measure, go back 'delay' time into the past
-   changedTime_ = GetCurrentMMTime();   
+   changedTime_ = GetCurrentMMTime();
 
    // Gate Closed Position
-   ret = CreateStringProperty(MM::g_Keyword_Closed_Position, "", false);
+   ret = CreateIntegerProperty(MM::g_Keyword_Closed_Position, 0, false);
+   if (ret != DEVICE_OK)
+       return ret;
 
    // create default positions and labels
    const int bufSize = 1024;
@@ -2844,6 +2903,7 @@ int CDemoStateDevice::Initialize()
    {
       snprintf(buf, bufSize, "State-%ld", i);
       SetPositionLabel(i, buf);
+      snprintf(buf, bufSize, "%ld", i);
       AddAllowedValue(MM::g_Keyword_Closed_Position, buf);
    }
 
@@ -2861,6 +2921,14 @@ int CDemoStateDevice::Initialize()
    if (ret != DEVICE_OK)
       return ret;
 
+   // Sequence
+   // -----
+   pAct = new CPropertyAction(this, &CDemoStateDevice::OnSequence);
+   ret = CreateProperty("Sequence", "Off", MM::String, false, pAct);
+   if (ret != DEVICE_OK)
+       return ret;
+   AddAllowedValue("Sequence", "On");
+   AddAllowedValue("Sequence", "Off");
 
 
    ret = UpdateStatus();
@@ -2874,14 +2942,13 @@ int CDemoStateDevice::Initialize()
 
 bool CDemoStateDevice::Busy()
 {
-   MM::MMTime interval = GetCurrentMMTime() - changedTime_;
-   MM::MMTime delay(GetDelayMs()*1000.0);
-   if (interval < delay)
-      return true;
-   else
-      return false;
+    MM::MMTime interval = GetCurrentMMTime() - changedTime_;
+    MM::MMTime delay(GetDelayMs() * 1000.0);
+    if (interval < delay)
+        return true;
+    else
+        return false;
 }
-
 
 int CDemoStateDevice::Shutdown()
 {
@@ -2895,6 +2962,42 @@ int CDemoStateDevice::Shutdown()
 ///////////////////////////////////////////////////////////////////////////////
 // Action handlers
 ///////////////////////////////////////////////////////////////////////////////
+
+int CDemoStateDevice::OnSequence(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+    if (eAct == MM::BeforeGet)
+    {
+        if (sequenceOn_)
+            pProp->Set("On");
+        else
+            pProp->Set("Off");
+    }
+    else if (eAct == MM::AfterSet)
+    {
+        std::string state;
+        pProp->Get(state);
+        if (state == "On")
+            sequenceOn_ = true;
+        else
+            sequenceOn_ = false;
+    }
+    return DEVICE_OK;
+}
+
+int CDemoStateDevice::SetGateOpen(bool open)
+{
+    if (gateOpen_ != open) {
+        gateOpen_ = open;
+    }
+    return DEVICE_OK;
+}
+
+int CDemoStateDevice::GetGateOpen(bool& open)
+{
+    open = gateOpen_;
+    return DEVICE_OK;
+}
+
 
 int CDemoStateDevice::OnState(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
@@ -2915,9 +3018,29 @@ int CDemoStateDevice::OnState(MM::PropertyBase* pProp, MM::ActionType eAct)
          pProp->Set(position_); // revert
          return ERR_UNKNOWN_POSITION;
       }
-      position_ = pos;
-   }
 
+      if (gateOpen_) {
+          if ((pos == position_ && !isClosed_)) {
+              return DEVICE_OK;
+          }
+          isClosed_ = false;
+      }
+
+      else if (!isClosed_) {
+          isClosed_ = true;
+      }
+
+      position_ = pos;
+      return DEVICE_OK;
+   }
+   else if (eAct == MM::IsSequenceable)
+   {
+       if (sequenceOn_)
+           pProp->SetSequenceable(numPatterns_);
+       else
+           pProp->SetSequenceable(0);
+       return DEVICE_OK;
+   }
    return DEVICE_OK;
 }
 

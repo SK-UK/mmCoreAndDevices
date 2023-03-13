@@ -62,12 +62,10 @@
 #include "ErrorCodes.h"
 #include "Logging/Logger.h"
 
-#include <boost/shared_ptr.hpp>
-#include <boost/weak_ptr.hpp>
-
 #include <cstring>
 #include <deque>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -242,7 +240,7 @@ public:
    void waitForConfig(const char* group, const char* configName) throw (CMMError);
    bool systemBusy() throw (CMMError);
    void waitForSystem() throw (CMMError);
-   void waitForImageSynchro() throw (CMMError);
+   MMCORE_DEPRECATED(void waitForImageSynchro() throw (CMMError));
    bool deviceTypeBusy(MM::DeviceType devType) throw (CMMError);
    void waitForDeviceType(MM::DeviceType devType) throw (CMMError);
 
@@ -345,10 +343,10 @@ public:
 
    /** \name Property blocks. */
    ///@{
-   void definePropertyBlock(const char* blockName, const char* propertyName,
-         const char* propertyValue);
-   std::vector<std::string> getAvailablePropertyBlocks() const;
-   PropertyBlock getPropertyBlockData(const char* blockName);
+   MMCORE_DEPRECATED(void definePropertyBlock(const char* blockName, const char* propertyName,
+         const char* propertyValue));
+   MMCORE_DEPRECATED(std::vector<std::string> getAvailablePropertyBlocks() const);
+   MMCORE_DEPRECATED(PropertyBlock getPropertyBlockData(const char* blockName));
    ///@}
 
    /** \name Image acquisition. */
@@ -386,9 +384,9 @@ public:
    std::string getCameraChannelName(unsigned int channelNr);
    long getImageBufferSize();
 
-   void assignImageSynchro(const char* deviceLabel) throw (CMMError);
-   void removeImageSynchro(const char* deviceLabel) throw (CMMError);
-   void removeImageSynchroAll();
+   MMCORE_DEPRECATED(void assignImageSynchro(const char* deviceLabel) throw (CMMError));
+   MMCORE_DEPRECATED(void removeImageSynchro(const char* deviceLabel) throw (CMMError));
+   MMCORE_DEPRECATED(void removeImageSynchroAll());
 
    void setAutoShutter(bool state);
    bool getAutoShutter();
@@ -464,9 +462,9 @@ public:
       throw (CMMError);
    long getStateFromLabel(const char* stateDeviceLabel,
          const char* stateLabel) throw (CMMError);
-   PropertyBlock getStateLabelData(const char* stateDeviceLabel,
-         const char* stateLabel);
-   PropertyBlock getData(const char* stateDeviceLabel);
+   MMCORE_DEPRECATED(PropertyBlock getStateLabelData(const char* stateDeviceLabel,
+         const char* stateLabel));
+   MMCORE_DEPRECATED(PropertyBlock getData(const char* stateDeviceLabel));
    ///@}
 
    /** \name Focus (Z) stage control. */
@@ -631,9 +629,9 @@ public:
 
    /** \name Miscellaneous. */
    ///@{
-   std::string getUserId() const;
-   std::string getHostName() const;
-   std::vector<std::string> getMACAddresses(void);
+   MMCORE_DEPRECATED(std::string getUserId() const);
+   MMCORE_DEPRECATED(std::string getHostName() const);
+   MMCORE_DEPRECATED(std::vector<std::string> getMACAddresses(void));
    ///@}
 
 private:
@@ -646,20 +644,20 @@ private:
 private:
    // LogManager should be the first data member, so that it is available for
    // as long as possible during construction and (especially) destruction.
-   boost::shared_ptr<mm::LogManager> logManager_;
+   std::shared_ptr<mm::LogManager> logManager_;
    mm::logging::Logger appLogger_;
    mm::logging::Logger coreLogger_;
 
    bool everSnapped_;
 
-   boost::weak_ptr<CameraInstance> currentCameraDevice_;
-   boost::weak_ptr<ShutterInstance> currentShutterDevice_;
-   boost::weak_ptr<StageInstance> currentFocusDevice_;
-   boost::weak_ptr<XYStageInstance> currentXYStageDevice_;
-   boost::weak_ptr<AutoFocusInstance> currentAutofocusDevice_;
-   boost::weak_ptr<SLMInstance> currentSLMDevice_;
-   boost::weak_ptr<GalvoInstance> currentGalvoDevice_;
-   boost::weak_ptr<ImageProcessorInstance> currentImageProcessor_;
+   std::weak_ptr<CameraInstance> currentCameraDevice_;
+   std::weak_ptr<ShutterInstance> currentShutterDevice_;
+   std::weak_ptr<StageInstance> currentFocusDevice_;
+   std::weak_ptr<XYStageInstance> currentXYStageDevice_;
+   std::weak_ptr<AutoFocusInstance> currentAutofocusDevice_;
+   std::weak_ptr<SLMInstance> currentSLMDevice_;
+   std::weak_ptr<GalvoInstance> currentGalvoDevice_;
+   std::weak_ptr<ImageProcessorInstance> currentImageProcessor_;
 
    std::string channelGroup_;
    long pollingIntervalMs_;
@@ -673,9 +671,9 @@ private:
    PixelSizeConfigGroup* pixelSizeGroup_;
    CircularBuffer* cbuf_;
 
-   std::vector< boost::weak_ptr<DeviceInstance> > imageSynchroDevices_;
-   boost::shared_ptr<CPluginManager> pluginManager_;
-   boost::shared_ptr<mm::DeviceManager> deviceManager_;
+   std::vector< std::weak_ptr<DeviceInstance> > imageSynchroDevices_;
+   std::shared_ptr<CPluginManager> pluginManager_;
+   std::shared_ptr<mm::DeviceManager> deviceManager_;
    std::map<int, std::string> errorText_;
    CPropBlockMap propBlocks_;
 
@@ -703,13 +701,13 @@ private:
 
    void applyConfiguration(const Configuration& config) throw (CMMError);
    int applyProperties(std::vector<PropertySetting>& props, std::string& lastError);
-   void waitForDevice(boost::shared_ptr<DeviceInstance> pDev) throw (CMMError);
+   void waitForDevice(std::shared_ptr<DeviceInstance> pDev) throw (CMMError);
    Configuration getConfigGroupState(const char* group, bool fromCache) throw (CMMError);
-   std::string getDeviceErrorText(int deviceCode, boost::shared_ptr<DeviceInstance> pDevice);
-   std::string getDeviceName(boost::shared_ptr<DeviceInstance> pDev);
+   std::string getDeviceErrorText(int deviceCode, std::shared_ptr<DeviceInstance> pDevice);
+   std::string getDeviceName(std::shared_ptr<DeviceInstance> pDev);
    void logError(const char* device, const char* msg);
    void updateAllowedChannelGroups();
-   void assignDefaultRole(boost::shared_ptr<DeviceInstance> pDev);
+   void assignDefaultRole(std::shared_ptr<DeviceInstance> pDev);
    void updateCoreProperty(const char* propName, MM::DeviceType devType) throw (CMMError);
    void loadSystemConfigurationImpl(const char* fileName) throw (CMMError);
 };

@@ -27,8 +27,6 @@
 
 #include "ErrorCodes.h"
 
-#include <boost/lexical_cast.hpp>
-
 #include <exception>
 #include <memory>
 #include <string>
@@ -153,12 +151,12 @@ public:
    virtual const CMMError* getUnderlyingError() const;
 
 private:
-   // Prohibit assignment.
+   // Prohibit assignment. (BUG: Assignment should behave like copy ctor.)
    CMMError& operator=(const CMMError&);
 
    std::string message_;
    Code code_;
-   std::auto_ptr<CMMError> underlying_;
+   std::unique_ptr<CMMError> underlying_;
 };
 
 #endif //_ERROR_H_

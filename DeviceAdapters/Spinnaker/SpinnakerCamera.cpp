@@ -316,11 +316,13 @@ int SpinnakerCamera::Initialize()
          GENICAM::gcstring currentVideoMode = VM->GetCurrentEntry()->GetSymbolic();
          VM->GetSymbolics(videoModes);
 
-         pAct = new CPropertyAction(this, &SpinnakerCamera::OnBinningEnum);
-         CreateProperty(MM::g_Keyword_Binning, VM->GetCurrentEntry()->GetSymbolic(), MM::String, false, pAct);
-         for (unsigned int i = 0; i < videoModes.size(); i++)
-            AddAllowedValue(MM::g_Keyword_Binning, videoModes[i].c_str());
+         CreateIntegerProperty(MM::g_Keyword_Binning, 1, true);
 
+         pAct = new CPropertyAction(this, &SpinnakerCamera::OnVideoMode);
+         CreateStringProperty("Video Mode", currentVideoMode.c_str(), false, pAct);
+         for (const auto& videoMode : videoModes) {
+             AddAllowedValue("Video Mode", videoMode.c_str());
+         }
 
          for (unsigned int i = 0; i < videoModes.size(); i++)
          {
@@ -1067,21 +1069,23 @@ void SpinnakerCamera::SetExposure(double exp)
 
 int SpinnakerCamera::SetROI(unsigned x, unsigned y, unsigned xSize, unsigned ySize)
 {
-   try
-   {
-      //Force offsets to be multiples of 2
-      x -= (unsigned) ( (m_cam->OffsetX.GetInc() - ((x - m_cam->OffsetX.GetMin()) % m_cam->OffsetX.GetInc())));
-      y -= (unsigned) ( (m_cam->OffsetY.GetInc() - ((y - m_cam->OffsetY.GetMin()) % m_cam->OffsetY.GetInc())));
-
-      // Force width and height to be multiple of 8
-      xSize += (unsigned) ((m_cam->Width.GetInc() - ((xSize - m_cam->Width.GetMin()) % m_cam->Width.GetInc())));
-      ySize += (unsigned) ((m_cam->Height.GetInc() - ((ySize - m_cam->Height.GetMin()) % m_cam->Height.GetInc())));
-
-      xSize = (unsigned) (min(xSize, m_cam->Width.GetMax()));
-      ySize = (unsigned) (min(ySize, m_cam->Height.GetMax()));
+    try
+   {   
+      // Reset offsets from previous ROI
+      m_cam->OffsetX.SetValue(m_cam->OffsetX.GetMin());
+      m_cam->OffsetY.SetValue(m_cam->OffsetY.GetMin());
+        
+      // Force width and height to be multiple of Width.GetInc() and Height.GetInc()
+      xSize = (unsigned) min(xSize - xSize % m_cam->Width.GetInc(), m_cam->Width.GetMax());
+      ySize = (unsigned) min(ySize - ySize % m_cam->Height.GetInc(), m_cam->Height.GetMax());
 
       m_cam->Width.SetValue(xSize);
       m_cam->Height.SetValue(ySize);
+
+      //Force offsets to be multiples of OffsetX.GetInc() and OffsetY.GetInc()
+      x = (unsigned) min(x - x % m_cam->OffsetX.GetInc(), m_cam->OffsetX.GetMax());
+      y = (unsigned) min(y - y % m_cam->OffsetY.GetInc(), m_cam->OffsetY.GetMax());
+
       m_cam->OffsetX.SetValue(x); 
       m_cam->OffsetY.SetValue(y);
    }
@@ -1260,7 +1264,7 @@ int SpinnakerCamera::OnFrameRate(MM::PropertyBase* pProp, MM::ActionType eAct)
    return OnFloatPropertyChanged(m_cam->AcquisitionFrameRate, pProp, eAct);
 }
 
-int SpinnakerCamera::OnBinningEnum(MM::PropertyBase* pProp, MM::ActionType eAct)
+int SpinnakerCamera::OnVideoMode(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    GENAPI::CEnumerationPtr VM = m_cam->GetNodeMap().GetNode("VideoMode");
    if (eAct == MM::BeforeGet)
@@ -1603,7 +1607,6 @@ int SpinnakerCamera::MoveImageToCircularBuffer()
 
          Metadata md;
          md.put("Camera", label);
-         md.put(MM::g_Keyword_Metadata_StartTime, CDeviceUtils::ConvertToString(m_aqThread->GetStartTime().getMsec()));
          md.put(MM::g_Keyword_Elapsed_Time_ms, CDeviceUtils::ConvertToString((timeStamp - m_aqThread->GetStartTime()).getMsec()));
          md.put(MM::g_Keyword_Metadata_ROI_X, CDeviceUtils::ConvertToString((long)m_cam->Width.GetValue()));
          md.put(MM::g_Keyword_Metadata_ROI_Y, CDeviceUtils::ConvertToString((long)m_cam->Height.GetValue()));
@@ -1713,9 +1716,9 @@ void SpinnakerAcquisitionThread::Start(long numImages, double intervalMs)
    m_stop = false;
    m_suspend = false;
    activate();
-   m_actualDuration = 0;
+   m_actualDuration = MM::MMTime{};
    m_startTime = m_spkrCam->GetCurrentMMTime();
-   m_lastFrameTime = 0;
+   m_lastFrameTime = MM::MMTime{};
    m_spkrCam->allocateImageBuffer(m_spkrCam->GetImageBufferSize(), m_spkrCam->m_cam->PixelFormat.GetValue());
 
    if (numImages == -1)

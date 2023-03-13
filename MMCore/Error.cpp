@@ -28,15 +28,13 @@
 
 CMMError::CMMError(const std::string& msg, Code code) :
    message_(msg),
-   code_(code),
-   underlying_(0)
+   code_(code)
 {}
 
 
 CMMError::CMMError(const char* msg, Code code) :
    message_(msg ? msg : "(null message)"),
-   code_(code),
-   underlying_(0)
+   code_(code)
 {}
 
 
@@ -70,8 +68,7 @@ CMMError::CMMError(const char* msg, const CMMError& underlyingError) :
 
 CMMError::CMMError(const CMMError& other) :
    message_(other.message_),
-   code_(other.code_),
-   underlying_(0)
+   code_(other.code_)
 {
    if (other.getUnderlyingError())
       underlying_.reset(new CMMError(*(other.getUnderlyingError())));
@@ -82,7 +79,7 @@ std::string
 CMMError::getMsg() const
 {
    if (message_.empty())
-      return "Error (code " + boost::lexical_cast<std::string>(code_) + ")";
+      return "Error (code " + std::to_string(code_) + ")";
    return message_;
 }
 

@@ -37,6 +37,7 @@
 #include <map>
 #include <algorithm>
 #include <stdint.h>
+#include <future>
 
 //////////////////////////////////////////////////////////////////////////////
 // Error codes
@@ -153,7 +154,7 @@ public:
    int StartSequenceAcquisition(long numImages, double interval_ms, bool stopOnOverflow);
    int StopSequenceAcquisition();
    int InsertImage();
-   int RunSequenceOnThread(MM::MMTime startTime);
+   int RunSequenceOnThread();
    bool IsCapturing();
    void OnThreadExiting() throw(); 
    double GetNominalPixelSizeUm() const {return nominalPixelSizeUm_;}
@@ -174,7 +175,10 @@ public:
    // action interface
    // ----------------
    int OnMaxExposure(MM::PropertyBase* pProp, MM::ActionType eAct);
-	int OnTestProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long);
+   int OnTestProperty(MM::PropertyBase* pProp, MM::ActionType eAct, long);
+   int OnAsyncFollower(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnAsyncLeader(MM::PropertyBase* pProp, MM::ActionType eAct);
+   void SlowPropUpdate(std::string leaderValue);
    int OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPixelType(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -265,10 +269,14 @@ private:
    std::vector<unsigned> multiROIHeights_;
 
 	double testProperty_[10];
+   std::string asyncLeader_;
+   std::string asyncFollower_;
    MMThreadLock imgPixelsLock_;
+   MMThreadLock asyncFollowerLock_;
    friend class MySequenceThread;
    int nComponents_;
    MySequenceThread * thd_;
+   std::future<void> fut_;
    int mode_;
    ImgManipulator* imgManpl_;
    double pcf_;
@@ -425,17 +433,27 @@ public:
   
    void GetName(char* pszName) const;
    bool Busy();
-   unsigned long GetNumberOfPositions()const {return numPos_;}
+  
 
    // action interface
    // ----------------
+   unsigned long GetNumberOfPositions()const { return numPos_; };
    int OnState(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnNumberOfStates(MM::PropertyBase* pProp, MM::ActionType eAct);
 
+   int OnSequence(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int SetGateOpen(bool open);
+   int GetGateOpen(bool& open);
+
 private:
+   uint16_t numPatterns_;
    long numPos_;
    bool initialized_;
    MM::MMTime changedTime_;
+   bool busy_;
+   bool sequenceOn_;
+   bool gateOpen_;
+   bool isClosed_;
    long position_;
 };
 
