@@ -1,0 +1,12 @@
+Modified mhlib.h:
+=================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+//OLD CONTENTS OF MHLIB.H
+
+#ifdef __cplusplus
+}
+#endif
